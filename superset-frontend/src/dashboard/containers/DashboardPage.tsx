@@ -16,7 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-import { createContext, lazy, FC, useEffect, useMemo, useRef } from 'react';
+import { createContext, lazy, FC, useEffect, useMemo, useRef, useState } from 'react';
 import { Global } from '@emotion/react';
 import { useHistory } from 'react-router-dom';
 import { t, useTheme } from '@superset-ui/core';
@@ -46,6 +46,9 @@ import {
   getPermalinkValue,
 } from 'src/dashboard/components/nativeFilters/FilterBar/keyValue';
 import DashboardContainer from 'src/dashboard/containers/Dashboard';
+import { ChartDataInterceptorProvider } from 'src/dashboard/components/ChartDataInterceptor';
+import ChatbotFAB from 'src/dashboard/components/ChatbotFAB';
+import ChartDataDialog from 'src/dashboard/components/ChartDataDialog';
 
 import { nanoid } from 'nanoid';
 import { RootState } from '../types';
@@ -229,6 +232,7 @@ export const DashboardPage: FC<PageProps> = ({ idOrSlug }: PageProps) => {
 
   const relevantDataMask = useSelector(selectRelevantDatamask);
   const activeFilters = useSelector(selectActiveFilters);
+  const [showChartDataDialog, setShowChartDataDialog] = useState(false);
 
   if (error) throw error; // caught in error boundary
 
@@ -247,7 +251,7 @@ export const DashboardPage: FC<PageProps> = ({ idOrSlug }: PageProps) => {
 
   const DashboardBuilderComponent = useMemo(() => <DashboardBuilder />, []);
   return (
-    <>
+    <ChartDataInterceptorProvider>
       <Global styles={globalStyles} />
       {readyToRender && hasDashboardInfoInitiated ? (
         <>
@@ -260,11 +264,16 @@ export const DashboardPage: FC<PageProps> = ({ idOrSlug }: PageProps) => {
               {DashboardBuilderComponent}
             </DashboardContainer>
           </DashboardPageIdContext.Provider>
+          <ChatbotFAB onClick={() => setShowChartDataDialog(true)} />
+          <ChartDataDialog
+            show={showChartDataDialog}
+            onHide={() => setShowChartDataDialog(false)}
+          />
         </>
       ) : (
         <Loading />
       )}
-    </>
+    </ChartDataInterceptorProvider>
   );
 };
 

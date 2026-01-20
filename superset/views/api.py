@@ -16,15 +16,17 @@
 # under the License.
 from __future__ import annotations
 
+import logging
 from typing import Any, TYPE_CHECKING
 
-from flask import request
+import requests
+from flask import g, Response, request
 from flask_appbuilder import expose
 from flask_appbuilder.api import rison
 from flask_appbuilder.security.decorators import has_access_api
 from flask_babel import lazy_gettext as _
 
-from superset import db, event_logger
+from superset import conf, db, event_logger
 from superset.commands.chart.exceptions import (
     TimeRangeAmbiguousError,
     TimeRangeParseFailError,
@@ -53,6 +55,7 @@ get_time_range_schema = {
 
 
 class Api(BaseSupersetView):
+    route_base = "/api"
     query_context_factory = None
 
     @event_logger.log_this
@@ -125,6 +128,99 @@ class Api(BaseSupersetView):
         except (ValueError, TimeRangeParseFailError, TimeRangeAmbiguousError) as error:
             error_msg = {"message": _("Unexpected time range: %(error)s", error=error)}
             return self.json_response(error_msg, 400)
+
+    @event_logger.log_this
+    @api
+    @handle_api_exception
+    @expose("/v1/chat/anthropic", methods=("POST",))
+    def chat_anthropic(self) -> FlaskResponse:
+        """
+        Proxy endpoint for Anthropic Claude API chat requests.
+        This endpoint handles CORS and keeps the API key server-side.
+        """
+        try:
+            # Check if user is authenticated
+            if g.user is None or g.user.is_anonymous:
+                return self.json_response(
+                    {"error": {"message": "Authentication required"}},
+                    401,
+                )
+
+            # Get API key from config
+            api_key = conf.get("CLAUDE_API_KEY")
+            if not api_key:
+                return self.json_response(
+                    {"error": {"message": "CLAUDE_API_KEY not configured in superset_config.py"}},
+                    400,
+                )
+
+            # Get request data
+            request_data = request.get_json()
+            if not request_data:
+                return self.json_response(
+                    {"error": {"message": "Request body is required"}},
+                    400,
+                )
+
+            # Prepare Anthropic API request
+            anthropic_url = "https://api.anthropic.com/v1/messages"
+            anthropic_payload = {
+                "model": request_data.get("model", "claude-sonnet-4-5-20250929"),
+                "system": request_data.get("system", ""),
+                "messages": request_data.get("messages", []),
+                "max_tokens": request_data.get("max_tokens", 1024),
+            }
+
+            # Make request to Anthropic API
+            headers = {
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
+
+            logger = logging.getLogger(__name__)
+            logger.info(f"Calling Anthropic API with model: {anthropic_payload['model']}")
+
+            response = requests.post(
+                anthropic_url,
+                json=anthropic_payload,
+                headers=headers,
+                timeout=60,
+            )
+
+            # Log response details for debugging
+            logger.info(f"Anthropic API response status: {response.status_code}")
+            if response.status_code != 200:
+                logger.error(f"Anthropic API error response: {response.text}")
+
+            # Return response from Anthropic
+            response.raise_for_status()
+            return Response(
+                response.content,
+                status=response.status_code,
+                mimetype="application/json",
+            )
+        except requests.exceptions.RequestException as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("Error calling Anthropic API")
+            error_msg = str(e)
+            if hasattr(e, "response") and e.response is not None:
+                try:
+                    error_data = e.response.json()
+                    error_msg = error_data.get("error", {}).get("message", error_msg)
+                except Exception:
+                    error_msg = e.response.text or error_msg
+            return self.json_response(
+                {"error": {"message": f"Anthropic API error: {error_msg}"}},
+                500,
+            )
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.exception("Unexpected error in chat_anthropic")
+            return self.json_response(
+                {"error": {"message": f"Unexpected error: {str(e)}"}},
+                500,
+            )
 
     def get_query_context_factory(self) -> QueryContextFactory:
         if self.query_context_factory is None:
