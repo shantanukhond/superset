@@ -372,21 +372,25 @@ CUSTOM_SECURITY_MANAGER = CustomSsoSecurityManager
   ]
   ```
 
-## Database authentication (`AUTH_DB`) password policy
+### PKCE Support
 
-When `AUTH_TYPE` is `AUTH_DB` (the default database username and password backend), end users change their own password through the profile UI, which calls `PUT /api/v1/me/password` with the current password and a new password. Password quality rules and related security defaults are grouped under the `AUTH_DB_CONFIG` dictionary in `superset_config.py`. Any keys you omit are merged with the defaults from `superset/config.py`.
-
-Example override:
+For public OAuth2 clients that cannot securely store a client secret, enable Proof Key for Code Exchange (PKCE) by adding `code_challenge_method` to the `remote_app` configuration:
 
 ```python
-AUTH_DB_CONFIG = {
-    "password_min_length": 16,
-    "password_require_special": True,
-    "password_common_list_check": True,
-}
+OAUTH_PROVIDERS = [
+    {
+        'name': 'myProvider',
+        'remote_app': {
+            'client_id': 'myClientId',
+            'client_secret': 'mySecret',  # may be empty for pure public clients
+            'code_challenge_method': 'S256',  # enables PKCE
+            'server_metadata_url': 'https://myAuthorizationServer/.well-known/openid-configuration'
+        }
+    }
+]
 ```
 
-Rate limiting and self-service reset settings in `AUTH_DB_CONFIG` are reserved for upcoming releases; password changes from the profile page use the policy keys today.
+PKCE (`S256`) is recommended for all OAuth2 flows, even when a client secret is present, as it protects against authorization code interception attacks.
 
 ## LDAP Authentication
 
