@@ -18,10 +18,20 @@
  */
 import { t } from '@apache-superset/core/translation';
 import { getClientErrorObject, SupersetClient } from '@superset-ui/core';
-import { FormModal, FormItem, Input, type FormInstance } from '@superset-ui/core/components';
+import {
+  FormModal,
+  FormItem,
+  Input,
+  type FormInstance,
+} from '@superset-ui/core/components';
 import { GeneratePasswordInputSuffix } from 'src/components/GeneratePasswordInputSuffix';
-import { generateAuthDbPassword } from 'src/utils/generateAuthDbPassword';
+import {
+  AUTH_DB_PASSWORD_MIN_LENGTH,
+  generateAuthDbPassword,
+  getAuthDbPasswordPolicyChecks,
+} from 'src/utils/generateAuthDbPassword';
 import { useToasts } from 'src/components/MessageToasts/withToasts';
+import AuthDbPasswordPolicyIndicator from 'src/components/AuthDbPasswordPolicyIndicator';
 import { User } from 'src/types/bootstrapTypes';
 import { BaseUserListModalProps, FormValues } from '../users/types';
 
@@ -38,6 +48,33 @@ function UserInfoModal({
   user,
 }: UserInfoModalProps) {
   const { addDangerToast, addSuccessToast } = useToasts();
+  const getPasswordPolicyError = (password: string): string | null => {
+    const checks = getAuthDbPasswordPolicyChecks(password);
+    if (!checks.minLength) {
+      return t(
+        'Password must be at least %s characters long.',
+        AUTH_DB_PASSWORD_MIN_LENGTH,
+      );
+    }
+    if (!checks.uppercase) {
+      return t('Password must contain at least one uppercase letter.');
+    }
+    if (!checks.lowercase) {
+      return t('Password must contain at least one lowercase letter.');
+    }
+    if (!checks.digit) {
+      return t('Password must contain at least one digit.');
+    }
+    if (!checks.special) {
+      return t(
+        'Password must contain at least one special (non-alphanumeric) character.',
+      );
+    }
+    if (!checks.commonPassword) {
+      return t('Password is too common.');
+    }
+    return null;
+  };
 
   const requiredFields = isEditMode
     ? ['first_name', 'last_name']
@@ -57,13 +94,12 @@ function UserInfoModal({
         });
         addSuccessToast(t('The user was updated successfully'));
       } else {
-        const { confirm_password, ...passwordPayload } = values;
-        void confirm_password;
         await SupersetClient.put({
           endpoint: `/api/v1/me/password`,
           jsonPayload: {
-            current_password: String(passwordPayload.current_password),
-            new_password: String(passwordPayload.new_password),
+            current_password: String(values.current_password),
+            new_password: String(values.new_password),
+            confirm_password: String(values.confirm_password),
           },
         });
         addSuccessToast(t('The password reset was successful'));
@@ -79,6 +115,7 @@ function UserInfoModal({
             ? (Object.values(raw).flat() as string[]).join(' ')
             : t('Something went wrong while saving the user info');
       addDangerToast(text);
+      throw error;
     }
   };
 
@@ -120,7 +157,21 @@ function UserInfoModal({
       <FormItem
         name="new_password"
         label={t('New password')}
-        rules={[{ required: true, message: t('New password is required') }]}
+        rules={[
+          { required: true, message: t('New password is required') },
+          {
+            validator(_, value) {
+              const password = String(value ?? '');
+              if (!password) {
+                return Promise.resolve();
+              }
+              const errorMessage = getPasswordPolicyError(password);
+              return errorMessage
+                ? Promise.reject(new Error(errorMessage))
+                : Promise.resolve();
+            },
+          },
+        ]}
       >
         <Input.Password
           name="new_password"
@@ -135,6 +186,21 @@ function UserInfoModal({
             />
           }
         />
+      </FormItem>
+      <FormItem noStyle dependencies={['new_password']}>
+        {() => {
+          const newPassword = String(form.getFieldValue('new_password') ?? '');
+          return (
+            <FormItem
+              label={t('Password strength')}
+              colon={false}
+              required={false}
+              style={{ marginBottom: 0 }}
+            >
+              <AuthDbPasswordPolicyIndicator password={newPassword} />
+            </FormItem>
+          );
+        }}
       </FormItem>
       <FormItem
         name="confirm_password"
@@ -181,9 +247,12 @@ function UserInfoModal({
   );
 }
 
-export const UserInfoResetPasswordModal = (
+export const ChangePasswordModal = (
   props: Omit<UserInfoModalProps, 'isEditMode' | 'user'>,
 ) => <UserInfoModal {...props} isEditMode={false} />;
+
+// Backward-compatible alias for existing imports.
+export const UserInfoResetPasswordModal = ChangePasswordModal;
 
 export const UserInfoEditModal = (
   props: Omit<UserInfoModalProps, 'isEditMode'> & { user: User },

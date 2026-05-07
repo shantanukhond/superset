@@ -74,6 +74,15 @@ const DIGIT = '23456789';
 const SPECIAL = '!@#$%^&*-_=+';
 const ALPHANUM = UPPER + LOWER + DIGIT;
 
+export interface AuthDbPasswordPolicyChecks {
+  minLength: boolean;
+  uppercase: boolean;
+  lowercase: boolean;
+  digit: boolean;
+  special: boolean;
+  commonPassword: boolean;
+}
+
 function secureRandomInt(maxExclusive: number): number {
   const buf = new Uint32Array(1);
   crypto.getRandomValues(buf);
@@ -95,25 +104,29 @@ function shuffleInPlace(chars: string[]): void {
 
 /** True when the string satisfies default AUTH_DB rules (mirrors backend checks). */
 export function satisfiesDefaultAuthDbPasswordPolicy(password: string): boolean {
-  if (password.length < AUTH_DB_PASSWORD_MIN_LENGTH) {
-    return false;
-  }
-  if (!/[A-Z]/.test(password)) {
-    return false;
-  }
-  if (!/[a-z]/.test(password)) {
-    return false;
-  }
-  if (!/\d/.test(password)) {
-    return false;
-  }
-  if (![...password].some(c => !/[A-Za-z0-9]/.test(c) && !/\s/.test(c))) {
-    return false;
-  }
-  if (AUTH_DB_COMMON_PASSWORDS.has(password.toLowerCase().trim())) {
-    return false;
-  }
-  return true;
+  const checks = getAuthDbPasswordPolicyChecks(password);
+  return (
+    checks.minLength &&
+    checks.uppercase &&
+    checks.lowercase &&
+    checks.digit &&
+    checks.special &&
+    checks.commonPassword
+  );
+}
+
+/** Returns rule-by-rule checks for default AUTH_DB password policy. */
+export function getAuthDbPasswordPolicyChecks(
+  password: string,
+): AuthDbPasswordPolicyChecks {
+  return {
+    minLength: password.length >= AUTH_DB_PASSWORD_MIN_LENGTH,
+    uppercase: /[A-Z]/.test(password),
+    lowercase: /[a-z]/.test(password),
+    digit: /\d/.test(password),
+    special: [...password].some(c => !/[A-Za-z0-9]/.test(c) && !/\s/.test(c)),
+    commonPassword: !AUTH_DB_COMMON_PASSWORDS.has(password.toLowerCase().trim()),
+  };
 }
 
 /**

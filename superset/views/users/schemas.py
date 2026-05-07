@@ -15,7 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 from flask_appbuilder.security.sqla.apis.user.schema import User
-from marshmallow import fields, Schema
+from marshmallow import fields, Schema, validates_schema, ValidationError
 from marshmallow.fields import Boolean, Integer, String
 from marshmallow.validate import Length
 
@@ -23,6 +23,7 @@ first_name_description = "The current user's first name"
 last_name_description = "The current user's last name"
 current_password_description = "The user's current password"  # noqa: S105
 new_password_description = "The desired new password"  # noqa: S105
+confirm_password_description = "Confirmation of the desired new password"  # noqa: S105
 
 
 class UserResponseSchema(Schema):
@@ -64,3 +65,15 @@ class CurrentUserPasswordPutSchema(Schema):
         metadata={"description": new_password_description},
         validate=[Length(min=1, max=256)],
     )
+    confirm_password = fields.String(
+        required=True,
+        metadata={"description": confirm_password_description},
+        validate=[Length(min=1, max=256)],
+    )
+
+    @validates_schema
+    def validate_new_password_confirmation(self, data: dict[str, str], **kwargs: object) -> None:
+        if data.get("new_password") != data.get("confirm_password"):
+            raise ValidationError(
+                {"confirm_password": ["Confirmation must match new_password."]}
+            )

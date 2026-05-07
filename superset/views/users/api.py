@@ -14,8 +14,12 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
+from __future__ import annotations
+
+import functools
+import logging
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 from flask import current_app as app, g, redirect, request, Response, session
 from flask_appbuilder.api import expose, permission_name, safe
@@ -24,14 +28,19 @@ from flask_appbuilder.security.decorators import protect
 from flask_appbuilder.security.sqla.models import User
 from flask_login import login_user
 from marshmallow import ValidationError
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.exc import NoResultFound
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from superset import is_feature_enabled
 from superset.daos.auth_audit_log import AuthAuditLogDAO
 from superset.daos.user import UserDAO
-from superset.extensions import db, event_logger
-from superset.utils.auth_db_password import validate_auth_db_password
+from superset.extensions import db, event_logger, security_manager
+from superset.utils.auth_db_password import (
+    get_auth_db_password_hash_method,
+    get_auth_db_login_rate_limit_string,
+    validate_auth_db_password,
+)
 from superset.utils.slack import get_user_avatar, SlackClientError
 from superset.views.base_api import BaseSupersetApi, requires_json, statsd_metrics
 from superset.views.users.schemas import (
@@ -41,7 +50,45 @@ from superset.views.users.schemas import (
 )
 from superset.views.utils import bootstrap_user_data
 
+logger = logging.getLogger(__name__)
+
 user_response_schema = UserResponseSchema()
+
+
+def _get_client_ip() -> str | None:
+    """Return best-effort client IP from request context."""
+    if request.access_route:
+        return request.access_route[0]
+    return request.remote_addr
+
+
+def _me_password_rate_limit_key() -> str:
+    uid = getattr(getattr(g, "user", None), "id", None)
+    if uid is not None:
+        return f"me_password_uid:{uid}"
+    return _get_client_ip() or "unknown"
+
+
+def _rate_limit_me_password_change(
+    f: Callable[..., Response],
+) -> Callable[..., Response]:
+    """Apply AUTH_DB ``login_rate_limit`` when Flask-Limiter is enabled."""
+
+    @functools.wraps(f)
+    def wrapped(self: CurrentUserRestApi, *args: Any, **kwargs: Any) -> Response:
+        if not app.config.get("RATELIMIT_ENABLED", False):
+            return f(self, *args, **kwargs)
+        limiter = getattr(security_manager, "limiter", None)
+        if limiter is None:
+            return f(self, *args, **kwargs)
+        limited_view = limiter.limit(
+            get_auth_db_login_rate_limit_string(),
+            key_func=_me_password_rate_limit_key,
+            methods=["PUT"],
+        )(f)
+        return limited_view(self, *args, **kwargs)
+
+    return wrapped
 
 
 class CurrentUserRestApi(BaseSupersetApi):
@@ -193,6 +240,7 @@ class CurrentUserRestApi(BaseSupersetApi):
         log_to_statsd=False,
     )
     @requires_json
+    @_rate_limit_me_password_change
     def update_my_password(self) -> Response:
         """Update the current user's password (AUTH_DB only)
         ---
@@ -222,6 +270,8 @@ class CurrentUserRestApi(BaseSupersetApi):
               $ref: '#/components/responses/400'
             401:
               $ref: '#/components/responses/401'
+            500:
+              $ref: '#/components/responses/500'
         """
         if app.config.get("AUTH_TYPE") != AUTH_DB:
             return self.response_400(
@@ -239,28 +289,80 @@ class CurrentUserRestApi(BaseSupersetApi):
         except ValidationError as error:
             return self.response_400(message=error.messages)
 
-        if not check_password_hash(g.user.password, body["current_password"]):
+        user_db = db.session.get(User, g.user.id)
+        if user_db is None:
+            return self.response_404()
+
+        old_hash = user_db.password
+        if not check_password_hash(old_hash, body["current_password"]):
             return self.response_400(message="Incorrect current password.")
 
-        g.user.password = generate_password_hash(
-            password=body["new_password"],
-            method=app.config.get("FAB_PASSWORD_HASH_METHOD", "scrypt"),
-            salt_length=app.config.get("FAB_PASSWORD_HASH_SALT_LENGTH", 16),
-        )
-        self.pre_update(g.user, {})
-        AuthAuditLogDAO.create(
-            event_type="password_change",
-            user_id=g.user.id,
-            ip_address=request.remote_addr,
-            user_agent=request.headers.get("User-Agent"),
-            metadata={"initiated_by": "self"},
-        )
+        try:
+            new_hash = generate_password_hash(
+                password=body["new_password"],
+                method=get_auth_db_password_hash_method(),
+                salt_length=app.config.get("FAB_PASSWORD_HASH_SALT_LENGTH", 16),
+            )
+        except ValidationError as error:
+            return self.response_400(message=error.messages)
+
+        try:
+            self.pre_update(g.user, {})
+            rows_updated = (
+                db.session.query(User)
+                .filter(User.id == g.user.id, User.password == old_hash)
+                .update(
+                    {
+                        User.password: new_hash,
+                        User.changed_on: g.user.changed_on,
+                        User.changed_by_fk: g.user.changed_by_fk,
+                    },
+                    synchronize_session=False,
+                )
+            )
+            if rows_updated != 1:
+                db.session.rollback()  # pylint: disable=consider-using-transaction
+                return self.response_400(
+                    message=(
+                        "Unable to update password. Your password may have been "
+                        "changed elsewhere; please try again."
+                    ),
+                )
+
+            AuthAuditLogDAO.create(
+                event_type="password_change",
+                user_id=g.user.id,
+                ip_address=_get_client_ip(),
+                user_agent=request.headers.get("User-Agent"),
+                metadata={
+                    "initiated_by": "self",
+                    "actor_user_id": g.user.id,
+                    "target_user_id": g.user.id,
+                },
+            )
+            db.session.commit()  # pylint: disable=consider-using-transaction
+        except SQLAlchemyError:
+            db.session.rollback()  # pylint: disable=consider-using-transaction
+            logger.exception("Failed to commit password change or audit log entry")
+            return self.response_500(
+                message="Unable to update password. Please try again.",
+            )
+
+        user_after = db.session.get(User, g.user.id)
+        if user_after is None:
+            logger.error("User missing after password commit for id=%s", g.user.id)
+            return self.response_500(
+                message="Unable to update password. Please try again.",
+            )
+
         # Mitigate session fixation: clear the cookie session and re-establish login.
+        # Run only after a successful commit so a failed commit cannot wipe the session
+        # while leaving the old password in place. Reload the user from the DB so the
+        # identity matches the committed row (session expiry after commit).
         for key in list(session.keys()):
             session.pop(key)
-        login_user(g.user)
-        db.session.commit()  # pylint: disable=consider-using-transaction
-        return self.response(200, result=user_response_schema.dump(g.user))
+        login_user(user_after)
+        return self.response(200, result=user_response_schema.dump(user_after))
 
 
 class UserRestApi(BaseSupersetApi):

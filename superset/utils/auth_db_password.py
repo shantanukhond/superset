@@ -32,11 +32,22 @@ AUTH_DB_DEFAULTS: dict[str, Any] = {
     "password_require_digit": True,
     "password_require_special": True,
     "password_common_list_check": True,
+    "password_hash_algorithm": "scrypt",
     "reset_token_expiry_minutes": 30,
     "reset_rate_limit": "5 per 15 minutes",
     "login_rate_limit": "10 per 5 minutes",
     "login_max_failures": 5,
     "login_lockout_duration_minutes": 15,
+}
+
+_SUPPORTED_HASH_ALGORITHMS: dict[str, str] = {
+    # Keep legacy keys for backward compatibility; Werkzeug does not support
+    # bcrypt/argon2 directly in generate_password_hash.
+    "bcrypt": "scrypt",
+    "argon2": "scrypt",
+    "scrypt": "scrypt",
+    "pbkdf2": "pbkdf2:sha256",
+    "pbkdf2:sha256": "pbkdf2:sha256",
 }
 
 _COMMON_PASSWORDS = frozenset(
@@ -88,6 +99,44 @@ def get_merged_auth_db_config() -> dict[str, Any]:
     """Return ``AUTH_DB_DEFAULTS`` merged with ``AUTH_DB_CONFIG`` from app config."""
     overrides = app.config.get("AUTH_DB_CONFIG") or {}
     return {**AUTH_DB_DEFAULTS, **overrides}
+
+
+def get_auth_db_login_rate_limit_string() -> str:
+    """
+    Return the configured AUTH_DB ``login_rate_limit`` string for Flask-Limiter.
+
+    Used for endpoints that verify a password (for example ``PUT /api/v1/me/password``).
+    """
+    return str(
+        get_merged_auth_db_config().get(
+            "login_rate_limit", AUTH_DB_DEFAULTS["login_rate_limit"]
+        )
+    )
+
+
+def get_auth_db_password_hash_method(cfg: dict[str, Any] | None = None) -> str:
+    """
+    Return the werkzeug-compatible password hash method for AUTH_DB.
+
+    ``AUTH_DB_CONFIG["password_hash_algorithm"]`` accepts ``scrypt`` or ``pbkdf2``.
+    Legacy values ``bcrypt`` and ``argon2`` are mapped to ``scrypt``.
+    """
+    merged_cfg = cfg if cfg is not None else get_merged_auth_db_config()
+    raw_algorithm = merged_cfg.get(
+        "password_hash_algorithm", AUTH_DB_DEFAULTS["password_hash_algorithm"]
+    )
+    algorithm = str(raw_algorithm).strip().lower()
+    if algorithm not in _SUPPORTED_HASH_ALGORITHMS:
+        supported = ", ".join(sorted(_SUPPORTED_HASH_ALGORITHMS))
+        raise ValidationError(
+            {
+                "password_hash_algorithm": [
+                    "Invalid AUTH_DB_CONFIG.password_hash_algorithm. "
+                    f"Expected one of: {supported}."
+                ]
+            }
+        )
+    return _SUPPORTED_HASH_ALGORITHMS[algorithm]
 
 
 def validate_auth_db_password(password: str, cfg: dict[str, Any] | None = None) -> None:

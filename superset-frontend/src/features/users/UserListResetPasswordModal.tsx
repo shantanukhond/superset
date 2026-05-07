@@ -28,7 +28,12 @@ import {
   type FormInstance,
 } from '@superset-ui/core/components';
 import { GeneratePasswordInputSuffix } from 'src/components/GeneratePasswordInputSuffix';
-import { generateAuthDbPassword } from 'src/utils/generateAuthDbPassword';
+import AuthDbPasswordPolicyIndicator from 'src/components/AuthDbPasswordPolicyIndicator';
+import {
+  AUTH_DB_PASSWORD_MIN_LENGTH,
+  generateAuthDbPassword,
+  getAuthDbPasswordPolicyChecks,
+} from 'src/utils/generateAuthDbPassword';
 import { UserObject } from 'src/pages/UsersList/types';
 import { buildSecurityUserUpdatePayload } from './utils';
 
@@ -46,6 +51,33 @@ function UserListResetPasswordModal({
   user,
 }: UserListResetPasswordModalProps) {
   const { addDangerToast, addSuccessToast } = useToasts();
+  const getPasswordPolicyError = (password: string): string | null => {
+    const checks = getAuthDbPasswordPolicyChecks(password);
+    if (!checks.minLength) {
+      return t(
+        'Password must be at least %s characters long.',
+        AUTH_DB_PASSWORD_MIN_LENGTH,
+      );
+    }
+    if (!checks.uppercase) {
+      return t('Password must contain at least one uppercase letter.');
+    }
+    if (!checks.lowercase) {
+      return t('Password must contain at least one lowercase letter.');
+    }
+    if (!checks.digit) {
+      return t('Password must contain at least one digit.');
+    }
+    if (!checks.special) {
+      return t(
+        'Password must contain at least one special (non-alphanumeric) character.',
+      );
+    }
+    if (!checks.commonPassword) {
+      return t('Password is too common.');
+    }
+    return null;
+  };
 
   const handleFormSubmit = async (values: {
     password: string;
@@ -110,7 +142,21 @@ function UserListResetPasswordModal({
           <FormItem
             name="password"
             label={t('New password')}
-            rules={[{ required: true, message: t('Password is required') }]}
+            rules={[
+              { required: true, message: t('Password is required') },
+              {
+                validator(_, value) {
+                  const password = String(value ?? '');
+                  if (!password) {
+                    return Promise.resolve();
+                  }
+                  const errorMessage = getPasswordPolicyError(password);
+                  return errorMessage
+                    ? Promise.reject(new Error(errorMessage))
+                    : Promise.resolve();
+                },
+              },
+            ]}
           >
             <Input.Password
               name="password"
@@ -125,6 +171,20 @@ function UserListResetPasswordModal({
                 />
               }
             />
+          </FormItem>
+          <FormItem noStyle dependencies={['password']}>
+            {() => {
+              const password = String(form.getFieldValue('password') ?? '');
+              return (
+                <FormItem
+                  label={t('Password strength')}
+                  colon={false}
+                  required={false}
+                >
+                  <AuthDbPasswordPolicyIndicator password={password} />
+                </FormItem>
+              );
+            }}
           </FormItem>
           <FormItem
             name="confirmPassword"

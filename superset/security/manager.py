@@ -23,7 +23,7 @@ import time
 from collections import defaultdict
 from typing import Any, Callable, cast, NamedTuple, Optional, TYPE_CHECKING
 
-from flask import current_app, Flask, g, Request
+from flask import current_app, Flask, g, has_request_context, Request, request
 from flask_appbuilder import Model
 from flask_appbuilder.models.filters import BaseFilter
 from flask_appbuilder.security.sqla.apis import GroupApi, RoleApi, UserApi
@@ -125,6 +125,13 @@ _RLSCacheKey = tuple[str, int | str]
 _RLSCache = dict[_RLSCacheKey, list[SqlaQuery]]
 
 
+def _get_request_ip() -> str | None:
+    """Return client IP from current request context, when available."""
+    if not has_request_context():
+        return None
+    return request.remote_addr
+
+
 def _log_audit_event(action: str, payload: dict[str, Any]) -> None:
     """Log an audit event via the configured event logger.
 
@@ -206,27 +213,26 @@ class SupersetUserApi(UserApi):
 
     def pre_update(self, model: User, item: Any) -> None:  # noqa: ARG002
         """Apply AUTH_DB password policy when an admin updates a user's password."""
-        from flask import current_app as app, request
+        from flask import current_app as app
         from flask_appbuilder.const import AUTH_DB
         from marshmallow import ValidationError
-        from werkzeug.exceptions import BadRequest
 
         from superset.utils.auth_db_password import validate_auth_db_password
 
         if app.config.get("AUTH_TYPE") == AUTH_DB:
-            body = item if isinstance(item, dict) else (request.get_json(silent=True) or {})
+            # FAB's ``UserApi.put`` passes the schema-loaded ``item`` dict only; do not
+            # read ``request`` here so validation stays aligned with ``UserPutSchema``.
+            body: dict[str, Any] = item if isinstance(item, dict) else {}
+            if hasattr(g, "_auth_admin_password_change_user_id"):
+                delattr(g, "_auth_admin_password_change_user_id")
             password = body.get("password")
             if password:
                 try:
                     validate_auth_db_password(str(password))
                 except ValidationError as err:
-                    parts: list[str] = []
-                    for value in err.messages.values():
-                        if isinstance(value, list):
-                            parts.extend(str(x) for x in value)
-                        else:
-                            parts.append(str(value))
-                    raise BadRequest(" ".join(parts) or "Invalid password") from err
+                    pwd_errors = err.messages.get("new_password", err.messages)
+                    raise ValidationError({"password": pwd_errors}) from err
+                setattr(g, "_auth_admin_password_change_user_id", model.id)
 
         super_pre_update = getattr(super(), "pre_update", None)
         if callable(super_pre_update):
@@ -266,6 +272,8 @@ class SupersetUserApi(UserApi):
         )
 
     def post_update(self, item: Model) -> None:
+        from superset.daos.auth_audit_log import AuthAuditLogDAO
+
         _log_audit_event(
             "UserUpdated",
             {
@@ -275,6 +283,23 @@ class SupersetUserApi(UserApi):
                 "active": item.active,
             },
         )
+        admin_password_target = getattr(g, "_auth_admin_password_change_user_id", None)
+        if admin_password_target == item.id:
+            actor_user_id = getattr(getattr(g, "user", None), "id", None)
+            AuthAuditLogDAO.create(
+                event_type="password_change",
+                user_id=item.id,
+                ip_address=_get_request_ip(),
+                user_agent=request.headers.get("User-Agent")
+                if has_request_context()
+                else None,
+                metadata={
+                    "initiated_by": "admin",
+                    "actor_user_id": actor_user_id,
+                    "target_user_id": item.id,
+                },
+            )
+            delattr(g, "_auth_admin_password_change_user_id")
 
     def post_delete(self, item: Model) -> None:
         _log_audit_event(

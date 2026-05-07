@@ -24,6 +24,7 @@ from werkzeug.security import generate_password_hash
 
 from superset import security_manager
 from superset.extensions import db
+from superset.utils.auth_db_password import get_auth_db_password_hash_method
 from superset.utils import json, slack  # noqa: F401
 from tests.integration_tests.base_tests import DEFAULT_PASSWORD, SupersetTestCase
 from tests.integration_tests.conftest import with_feature_flags
@@ -119,6 +120,7 @@ class TestCurrentUserApi(SupersetTestCase):
             json={
                 "current_password": "not-the-admin-password",
                 "new_password": "AnotherStr0ng!Pass",
+                "confirm_password": "AnotherStr0ng!Pass",
             },
         )
         assert rv.status_code == 400
@@ -129,7 +131,11 @@ class TestCurrentUserApi(SupersetTestCase):
         self.login(ADMIN_USERNAME)
         rv = self.client.put(
             mePasswordUri,
-            json={"current_password": DEFAULT_PASSWORD, "new_password": "short"},
+            json={
+                "current_password": DEFAULT_PASSWORD,
+                "new_password": "short",
+                "confirm_password": "short",
+            },
         )
         assert rv.status_code == 400
         data = json.loads(rv.data.decode("utf-8"))
@@ -143,6 +149,7 @@ class TestCurrentUserApi(SupersetTestCase):
             json={
                 "current_password": DEFAULT_PASSWORD,
                 "new_password": new_password,
+                "confirm_password": new_password,
             },
         )
         assert rv.status_code == 200
@@ -152,6 +159,7 @@ class TestCurrentUserApi(SupersetTestCase):
             json={
                 "current_password": new_password,
                 "new_password": "YetAnotherStr0ng!Pw",
+                "confirm_password": "YetAnotherStr0ng!Pw",
             },
         )
         assert rv2.status_code == 200
@@ -159,14 +167,66 @@ class TestCurrentUserApi(SupersetTestCase):
         user = security_manager.find_user(username=ADMIN_USERNAME)
         user.password = generate_password_hash(
             DEFAULT_PASSWORD,
-            method=superset_integration_app.config.get(
-                "FAB_PASSWORD_HASH_METHOD", "scrypt"
-            ),
+            method=get_auth_db_password_hash_method(),
             salt_length=superset_integration_app.config.get(
                 "FAB_PASSWORD_HASH_SALT_LENGTH", 16
             ),
         )
         db.session.commit()
+
+    @patch("superset.views.users.api.AuthAuditLogDAO.create")
+    def test_put_my_password_audit_metadata(self, mock_create):
+        self.login(ADMIN_USERNAME)
+        new_password = "AnotherStr0ng!Pass"
+        rv = self.client.put(
+            mePasswordUri,
+            json={
+                "current_password": DEFAULT_PASSWORD,
+                "new_password": new_password,
+                "confirm_password": new_password,
+            },
+        )
+        assert rv.status_code == 200
+        kwargs = mock_create.call_args.kwargs
+        assert kwargs["event_type"] == "password_change"
+        assert kwargs["user_id"] == 1
+        assert kwargs["ip_address"] is not None
+        assert kwargs["metadata"]["initiated_by"] == "self"
+        assert kwargs["metadata"]["actor_user_id"] == 1
+        assert kwargs["metadata"]["target_user_id"] == 1
+
+        user = security_manager.find_user(username=ADMIN_USERNAME)
+        user.password = generate_password_hash(
+            DEFAULT_PASSWORD,
+            method=get_auth_db_password_hash_method(),
+            salt_length=superset_integration_app.config.get(
+                "FAB_PASSWORD_HASH_SALT_LENGTH", 16
+            ),
+        )
+        db.session.commit()
+
+    def test_put_my_password_invalid_hash_algorithm(self):
+        self.login(ADMIN_USERNAME)
+        original_auth_db_config = superset_integration_app.config.get("AUTH_DB_CONFIG", {})
+        try:
+            superset_integration_app.config["AUTH_DB_CONFIG"] = {
+                **original_auth_db_config,
+                "password_hash_algorithm": "invalid",
+            }
+            rv = self.client.put(
+                mePasswordUri,
+                json={
+                    "current_password": DEFAULT_PASSWORD,
+                    "new_password": "AnotherStr0ng!Pass",
+                    "confirm_password": "AnotherStr0ng!Pass",
+                },
+            )
+        finally:
+            superset_integration_app.config["AUTH_DB_CONFIG"] = original_auth_db_config
+
+        assert rv.status_code == 400
+        data = json.loads(rv.data.decode("utf-8"))
+        assert "password_hash_algorithm" in data["message"]
 
     def test_put_my_password_unavailable_when_not_auth_db(self):
         self.login(ADMIN_USERNAME)
@@ -178,6 +238,7 @@ class TestCurrentUserApi(SupersetTestCase):
                 json={
                     "current_password": DEFAULT_PASSWORD,
                     "new_password": "AnotherStr0ng!Pass",
+                    "confirm_password": "AnotherStr0ng!Pass",
                 },
             )
         finally:
@@ -185,6 +246,20 @@ class TestCurrentUserApi(SupersetTestCase):
         assert rv.status_code == 400
         data = json.loads(rv.data.decode("utf-8"))
         assert "AUTH_TYPE is AUTH_DB" in data["message"]
+
+    def test_put_my_password_confirmation_mismatch(self):
+        self.login(ADMIN_USERNAME)
+        rv = self.client.put(
+            mePasswordUri,
+            json={
+                "current_password": DEFAULT_PASSWORD,
+                "new_password": "AnotherStr0ng!Pass",
+                "confirm_password": "AnotherStr0ng!PassMismatch",
+            },
+        )
+        assert rv.status_code == 400
+        data = json.loads(rv.data.decode("utf-8"))
+        assert "confirm_password" in data["message"]
 
 
 class TestUserApi(SupersetTestCase):

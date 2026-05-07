@@ -18,7 +18,10 @@
 import pytest
 from marshmallow import ValidationError
 
-from superset.utils.auth_db_password import validate_auth_db_password
+from superset.utils.auth_db_password import (
+    get_auth_db_password_hash_method,
+    validate_auth_db_password,
+)
 
 _POLICY = {
     "password_min_length": 12,
@@ -60,3 +63,35 @@ def test_validate_auth_db_password_rejects_common_password() -> None:
     }
     with pytest.raises(ValidationError):
         validate_auth_db_password("password", cfg)
+
+
+def test_get_auth_db_password_hash_method_default_scrypt() -> None:
+    assert get_auth_db_password_hash_method({}) == "scrypt"
+
+
+@pytest.mark.parametrize(
+    "config_value,expected_method",
+    [
+        ("bcrypt", "scrypt"),
+        ("BCRYPT", "scrypt"),
+        ("argon2", "scrypt"),
+        (" argon2 ", "scrypt"),
+        ("scrypt", "scrypt"),
+        ("pbkdf2", "pbkdf2:sha256"),
+        ("pbkdf2:sha256", "pbkdf2:sha256"),
+    ],
+)
+def test_get_auth_db_password_hash_method_valid_values(
+    config_value: str, expected_method: str
+) -> None:
+    assert (
+        get_auth_db_password_hash_method({"password_hash_algorithm": config_value})
+        == expected_method
+    )
+
+
+def test_get_auth_db_password_hash_method_rejects_invalid_algorithm() -> None:
+    with pytest.raises(ValidationError) as exc:
+        get_auth_db_password_hash_method({"password_hash_algorithm": "sha512"})
+
+    assert "password_hash_algorithm" in exc.value.messages
