@@ -15,6 +15,7 @@
 # specific language governing permissions and limitations
 # under the License.
 from flask_appbuilder.security.sqla.apis.user.schema import User
+from flask_babel import lazy_gettext as _
 from marshmallow import fields, Schema, validates_schema, ValidationError
 from marshmallow.fields import Boolean, Integer, String
 from marshmallow.validate import Length
@@ -75,5 +76,5 @@ class CurrentUserPasswordPutSchema(Schema):
     def validate_new_password_confirmation(self, data: dict[str, str], **kwargs: object) -> None:
         if data.get("new_password") != data.get("confirm_password"):
             raise ValidationError(
-                {"confirm_password": ["Confirmation must match new_password."]}
+                {"confirm_password": [_("Confirmation must match new_password.")]}
             )

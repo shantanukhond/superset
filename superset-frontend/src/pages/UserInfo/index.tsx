@@ -35,6 +35,8 @@ import {
 } from 'src/features/userInfo/UserInfoModal';
 import { Icons, Collapse } from '@superset-ui/core/components';
 import { ApiKeyList } from 'src/features/apiKeys/ApiKeyList';
+import { AuthType } from 'src/constants/auth';
+import getBootstrapData from 'src/utils/getBootstrapData';
 
 const StyledHeader = styled.div`
   ${({ theme }) => css`
@@ -118,27 +120,34 @@ export function UserInfo({ user }: { user: UserWithPermissionsAndRoles }) {
     getUserDetails();
   }, []);
 
+  const authType: AuthType = getBootstrapData().common.conf.AUTH_TYPE;
+  const isAuthDb = authType === AuthType.AuthDB;
+
   const SubMenuButtons: SubMenuProps['buttons'] = [
-    {
-      name: (
-        <>
-          <Icons.LockOutlined
-            iconColor={theme.colorPrimary}
-            iconSize="m"
-            css={css`
-              margin: auto ${theme.sizeUnit * 2}px auto 0;
-              vertical-align: text-top;
-            `}
-          />
-          {t('Reset my password')}
-        </>
-      ),
-      buttonStyle: 'secondary',
-      onClick: () => {
-        openModal(ModalType.ResetPassword);
-      },
-      'data-test': 'reset-password-button',
-    },
+    ...(isAuthDb
+      ? [
+          {
+            name: (
+              <>
+                <Icons.LockOutlined
+                  iconColor={theme.colorPrimary}
+                  iconSize="m"
+                  css={css`
+                    margin: auto ${theme.sizeUnit * 2}px auto 0;
+                    vertical-align: text-top;
+                  `}
+                />
+                {t('Reset my password')}
+              </>
+            ),
+            buttonStyle: 'secondary' as const,
+            onClick: () => {
+              openModal(ModalType.ResetPassword);
+            },
+            'data-test': 'reset-password-button',
+          },
+        ]
+      : []),
     {
       name: (
         <>

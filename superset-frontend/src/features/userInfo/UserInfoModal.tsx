@@ -18,6 +18,7 @@
  */
 import { t } from '@apache-superset/core/translation';
 import { getClientErrorObject, SupersetClient } from '@superset-ui/core';
+import { useEffect, useState } from 'react';
 import {
   FormModal,
   FormItem,
@@ -26,7 +27,9 @@ import {
 } from '@superset-ui/core/components';
 import { GeneratePasswordInputSuffix } from 'src/components/GeneratePasswordInputSuffix';
 import {
+  AUTH_DB_DEFAULT_PASSWORD_POLICY,
   AUTH_DB_PASSWORD_MIN_LENGTH,
+  AuthDbPasswordPolicy,
   generateAuthDbPassword,
   getAuthDbPasswordPolicyChecks,
 } from 'src/utils/generateAuthDbPassword';
@@ -48,29 +51,50 @@ function UserInfoModal({
   user,
 }: UserInfoModalProps) {
   const { addDangerToast, addSuccessToast } = useToasts();
+  const [passwordPolicy, setPasswordPolicy] = useState<AuthDbPasswordPolicy>(
+    AUTH_DB_DEFAULT_PASSWORD_POLICY,
+  );
+
+  useEffect(() => {
+    if (!show || isEditMode) {
+      return;
+    }
+    SupersetClient.get({
+      endpoint: '/api/v1/me/password/policy',
+    })
+      .then(({ json }) => {
+        if (json?.result) {
+          setPasswordPolicy(json.result as AuthDbPasswordPolicy);
+        }
+      })
+      .catch(() => {
+        // Keep default policy when endpoint is unavailable.
+      });
+  }, [show, isEditMode]);
+
   const getPasswordPolicyError = (password: string): string | null => {
-    const checks = getAuthDbPasswordPolicyChecks(password);
+    const checks = getAuthDbPasswordPolicyChecks(password, passwordPolicy);
     if (!checks.minLength) {
       return t(
         'Password must be at least %s characters long.',
-        AUTH_DB_PASSWORD_MIN_LENGTH,
+        passwordPolicy.password_min_length ?? AUTH_DB_PASSWORD_MIN_LENGTH,
       );
     }
-    if (!checks.uppercase) {
+    if (passwordPolicy.password_require_uppercase && !checks.uppercase) {
       return t('Password must contain at least one uppercase letter.');
     }
-    if (!checks.lowercase) {
+    if (passwordPolicy.password_require_lowercase && !checks.lowercase) {
       return t('Password must contain at least one lowercase letter.');
     }
-    if (!checks.digit) {
+    if (passwordPolicy.password_require_digit && !checks.digit) {
       return t('Password must contain at least one digit.');
     }
-    if (!checks.special) {
+    if (passwordPolicy.password_require_special && !checks.special) {
       return t(
-        'Password must contain at least one special (non-alphanumeric) character.',
+        'Password must contain at least one special character (not a letter, digit, or space).',
       );
     }
-    if (!checks.commonPassword) {
+    if (passwordPolicy.password_common_list_check && !checks.commonPassword) {
       return t('Password is too common.');
     }
     return null;
@@ -104,7 +128,6 @@ function UserInfoModal({
         });
         addSuccessToast(t('The password reset was successful'));
       }
-      onSave();
     } catch (error) {
       const clientError = await getClientErrorObject(error);
       const raw = clientError.message;
@@ -197,7 +220,10 @@ function UserInfoModal({
               required={false}
               style={{ marginBottom: 0 }}
             >
-              <AuthDbPasswordPolicyIndicator password={newPassword} />
+              <AuthDbPasswordPolicyIndicator
+                password={newPassword}
+                policy={passwordPolicy}
+              />
             </FormItem>
           );
         }}

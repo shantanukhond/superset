@@ -14,41 +14,28 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Authentication audit log entries for AUTH_DB flows."""
+"""Per-user stamp used to invalidate browser sessions after password changes."""
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
 from flask_appbuilder import Model
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, String
 from sqlalchemy.orm import relationship
-from sqlalchemy.types import JSON
 
 from superset import security_manager
 
 
-def _utc_now() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-class AuthAuditLog(Model):
+class UserSessionAuthStamp(Model):
     """
-    Append-only audit trail for authentication-related events.
+    One row per ``ab_user`` holding a stamp copied into the Flask session at login.
 
-    The physical column name ``metadata`` is mapped to ``event_metadata`` because
-    ``metadata`` is reserved on SQLAlchemy declarative models.
+    Bumping ``stamp`` invalidates every session that still carries an older value.
     """
 
-    __tablename__ = "auth_audit_log"
+    __tablename__ = "user_session_auth_stamp"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("ab_user.id"), nullable=True)
-    event_type = Column(String(64), nullable=False)
-    ip_address = Column(String(256), nullable=True)
-    user_agent = Column(Text, nullable=True)
-    event_metadata = Column("metadata", JSON, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=_utc_now)
+    user_id = Column(Integer, ForeignKey("ab_user.id", ondelete="CASCADE"), primary_key=True)
+    stamp = Column(String(36), nullable=False)
 
     user = relationship(
         security_manager.user_model,
@@ -56,4 +43,4 @@ class AuthAuditLog(Model):
     )
 
     def __repr__(self) -> str:
-        return f"<AuthAuditLog id={self.id} event_type={self.event_type!r}>"
+        return f"<UserSessionAuthStamp user_id={self.user_id}>"

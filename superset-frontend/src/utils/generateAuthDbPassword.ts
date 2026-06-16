@@ -22,6 +22,23 @@
  * Keep ``AUTH_DB_COMMON_PASSWORDS`` in sync with ``_COMMON_PASSWORDS`` in that module.
  */
 export const AUTH_DB_PASSWORD_MIN_LENGTH = 12;
+export interface AuthDbPasswordPolicy {
+  password_min_length: number;
+  password_require_uppercase: boolean;
+  password_require_lowercase: boolean;
+  password_require_digit: boolean;
+  password_require_special: boolean;
+  password_common_list_check: boolean;
+}
+
+export const AUTH_DB_DEFAULT_PASSWORD_POLICY: AuthDbPasswordPolicy = {
+  password_min_length: AUTH_DB_PASSWORD_MIN_LENGTH,
+  password_require_uppercase: true,
+  password_require_lowercase: true,
+  password_require_digit: true,
+  password_require_special: true,
+  password_common_list_check: true,
+};
 
 /** Lowercased entries; keep in sync with ``_COMMON_PASSWORDS`` in auth_db_password.py */
 const AUTH_DB_COMMON_PASSWORDS = new Set(
@@ -104,7 +121,10 @@ function shuffleInPlace(chars: string[]): void {
 
 /** True when the string satisfies default AUTH_DB rules (mirrors backend checks). */
 export function satisfiesDefaultAuthDbPasswordPolicy(password: string): boolean {
-  const checks = getAuthDbPasswordPolicyChecks(password);
+  const checks = getAuthDbPasswordPolicyChecks(
+    password,
+    AUTH_DB_DEFAULT_PASSWORD_POLICY,
+  );
   return (
     checks.minLength &&
     checks.uppercase &&
@@ -118,14 +138,20 @@ export function satisfiesDefaultAuthDbPasswordPolicy(password: string): boolean 
 /** Returns rule-by-rule checks for default AUTH_DB password policy. */
 export function getAuthDbPasswordPolicyChecks(
   password: string,
+  policy: AuthDbPasswordPolicy = AUTH_DB_DEFAULT_PASSWORD_POLICY,
 ): AuthDbPasswordPolicyChecks {
+  const minLength = Math.max(1, Number(policy.password_min_length) || 1);
   return {
-    minLength: password.length >= AUTH_DB_PASSWORD_MIN_LENGTH,
-    uppercase: /[A-Z]/.test(password),
-    lowercase: /[a-z]/.test(password),
-    digit: /\d/.test(password),
-    special: [...password].some(c => !/[A-Za-z0-9]/.test(c) && !/\s/.test(c)),
-    commonPassword: !AUTH_DB_COMMON_PASSWORDS.has(password.toLowerCase().trim()),
+    minLength: password.length >= minLength,
+    uppercase: !policy.password_require_uppercase || /[A-Z]/.test(password),
+    lowercase: !policy.password_require_lowercase || /[a-z]/.test(password),
+    digit: !policy.password_require_digit || /\d/.test(password),
+    special:
+      !policy.password_require_special ||
+      /[^\p{L}\p{N}\s]/u.test(password),
+    commonPassword:
+      !policy.password_common_list_check ||
+      !AUTH_DB_COMMON_PASSWORDS.has(password.toLowerCase().trim()),
   };
 }
 

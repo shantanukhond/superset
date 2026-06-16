@@ -18,7 +18,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from superset.extensions import db
@@ -48,7 +48,7 @@ class AuthAuditLogDAO:
             ip_address=ip_address,
             user_agent=user_agent,
             event_metadata=metadata,
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         db.session.add(entry)
         db.session.flush()

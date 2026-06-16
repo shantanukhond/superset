@@ -19,6 +19,7 @@
 import {
   AUTH_DB_PASSWORD_MIN_LENGTH,
   generateAuthDbPassword,
+  getAuthDbPasswordPolicyChecks,
   satisfiesDefaultAuthDbPasswordPolicy,
 } from './generateAuthDbPassword';
 
@@ -35,4 +36,17 @@ test('satisfiesDefaultAuthDbPasswordPolicy rejects weak and common passwords', (
   expect(satisfiesDefaultAuthDbPasswordPolicy('password')).toBe(false);
   expect(satisfiesDefaultAuthDbPasswordPolicy('NoDigitsHere!!!!')).toBe(false);
   expect(satisfiesDefaultAuthDbPasswordPolicy('Password123')).toBe(false);
+});
+
+test('getAuthDbPasswordPolicyChecks treats Unicode letters as alphanumeric', () => {
+  const unicodeLettersOnly = 'Äbcdefghijkl1';
+  const checks = getAuthDbPasswordPolicyChecks(unicodeLettersOnly);
+  expect(checks.special).toBe(false);
+  expect(checks.minLength).toBe(true);
+  expect(checks.digit).toBe(true);
+});
+
+test('getAuthDbPasswordPolicyChecks still requires a true special character', () => {
+  const withSpecial = 'Abcdefghijk!1';
+  expect(getAuthDbPasswordPolicyChecks(withSpecial).special).toBe(true);
 });

@@ -20,12 +20,14 @@ import { css, styled } from '@apache-superset/core/theme';
 import { t } from '@apache-superset/core/translation';
 import { Icons, Popover, Progress, Typography } from '@superset-ui/core/components';
 import {
-  AUTH_DB_PASSWORD_MIN_LENGTH,
+  AUTH_DB_DEFAULT_PASSWORD_POLICY,
+  AuthDbPasswordPolicy,
   getAuthDbPasswordPolicyChecks,
 } from 'src/utils/generateAuthDbPassword';
 
 interface AuthDbPasswordPolicyIndicatorProps {
   password: string;
+  policy?: AuthDbPasswordPolicy;
 }
 
 const StrengthWrapper = styled.div`
@@ -66,7 +68,7 @@ const ChecklistItem = styled.div`
 `;
 
 const requirementText = {
-  minLength: t('At least %s characters', AUTH_DB_PASSWORD_MIN_LENGTH),
+  minLength: (minLength: number) => t('At least %s characters', minLength),
   uppercase: t('Contains an uppercase letter'),
   lowercase: t('Contains a lowercase letter'),
   digit: t('Contains a digit'),
@@ -92,19 +94,35 @@ function getStrengthState(passedChecks: number) {
 
 export default function AuthDbPasswordPolicyIndicator({
   password,
+  policy = AUTH_DB_DEFAULT_PASSWORD_POLICY,
 }: AuthDbPasswordPolicyIndicatorProps) {
-  const checks = getAuthDbPasswordPolicyChecks(password);
+  const checks = getAuthDbPasswordPolicyChecks(password, policy);
   const hasPassword = password.length > 0;
   const checklist = [
-    { label: requirementText.minLength, passed: hasPassword && checks.minLength },
-    { label: requirementText.uppercase, passed: hasPassword && checks.uppercase },
-    { label: requirementText.lowercase, passed: hasPassword && checks.lowercase },
-    { label: requirementText.digit, passed: hasPassword && checks.digit },
-    { label: requirementText.special, passed: hasPassword && checks.special },
     {
-      label: requirementText.commonPassword,
-      passed: hasPassword && checks.commonPassword,
+      label: requirementText.minLength(policy.password_min_length),
+      passed: hasPassword && checks.minLength,
     },
+    ...(policy.password_require_uppercase
+      ? [{ label: requirementText.uppercase, passed: hasPassword && checks.uppercase }]
+      : []),
+    ...(policy.password_require_lowercase
+      ? [{ label: requirementText.lowercase, passed: hasPassword && checks.lowercase }]
+      : []),
+    ...(policy.password_require_digit
+      ? [{ label: requirementText.digit, passed: hasPassword && checks.digit }]
+      : []),
+    ...(policy.password_require_special
+      ? [{ label: requirementText.special, passed: hasPassword && checks.special }]
+      : []),
+    ...(policy.password_common_list_check
+      ? [
+          {
+            label: requirementText.commonPassword,
+            passed: hasPassword && checks.commonPassword,
+          },
+        ]
+      : []),
   ];
   const passedChecks = checklist.filter(item => item.passed).length;
   const percent = Math.round((passedChecks / checklist.length) * 100);

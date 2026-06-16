@@ -292,6 +292,9 @@ class SupersetUserApi(UserApi):
         )
         admin_password_target = getattr(g, "_auth_admin_password_change_user_id", None)
         if admin_password_target == item.id:
+            from superset.utils.auth_session_stamp import bump_user_session_auth_stamp
+
+            bump_user_session_auth_stamp(item.id)
             actor_user_id = getattr(getattr(g, "user", None), "id", None)
             AuthAuditLogDAO.create(
                 event_type="password_change",
@@ -868,6 +871,9 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
     def create_login_manager(self, app: Flask) -> LoginManager:
         lm = super().create_login_manager(app)
         lm.request_loader(self.request_loader)
+        from superset.utils.auth_session_stamp import register_session_auth_stamp_hook
+
+        register_session_auth_stamp_hook(app)
         return lm
 
     def reset_password(self, userid: Union[int, str], password: str) -> None:
@@ -924,6 +930,9 @@ class SupersetSecurityManager(  # pylint: disable=too-many-public-methods
             "UserLoggedIn",
             {"username": user.username, "user_id": user.id},
         )
+        from superset.utils.auth_session_stamp import sync_session_auth_stamp_on_login
+
+        sync_session_auth_stamp_on_login(user)
 
     def on_user_login_failed(self, user: Any) -> None:
         _log_audit_event(

@@ -40,7 +40,17 @@ AUTH_DB_DEFAULTS: dict[str, Any] = {
     "login_lockout_duration_minutes": 15,
 }
 
+_PUBLIC_PASSWORD_POLICY_KEYS = (
+    "password_min_length",
+    "password_require_uppercase",
+    "password_require_lowercase",
+    "password_require_digit",
+    "password_require_special",
+    "password_common_list_check",
+)
+
 _SUPPORTED_HASH_ALGORITHMS: dict[str, str] = {
+    # TODO: native bcrypt/argon2 support is deferred to a follow-up SIP; see SIP-201.
     # Keep legacy keys for backward compatibility; Werkzeug does not support
     # bcrypt/argon2 directly in generate_password_hash.
     "bcrypt": "scrypt",
@@ -51,7 +61,8 @@ _SUPPORTED_HASH_ALGORITHMS: dict[str, str] = {
 }
 
 _COMMON_PASSWORDS = frozenset(
-    {
+    password.lower()
+    for password in {
         "password",
         "password1",
         "password123",
@@ -114,6 +125,14 @@ def get_auth_db_login_rate_limit_string() -> str:
     )
 
 
+def get_public_auth_db_password_policy(cfg: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Return non-secret AUTH_DB password policy options for frontend validation UI.
+    """
+    merged_cfg = cfg if cfg is not None else get_merged_auth_db_config()
+    return {key: merged_cfg[key] for key in _PUBLIC_PASSWORD_POLICY_KEYS}
+
+
 def get_auth_db_password_hash_method(cfg: dict[str, Any] | None = None) -> str:
     """
     Return the werkzeug-compatible password hash method for AUTH_DB.
@@ -167,7 +186,8 @@ def validate_auth_db_password(password: str, cfg: dict[str, Any] | None = None) 
         (not c.isalnum() and not c.isspace()) for c in password
     ):
         errors.append(
-            "Password must contain at least one special (non-alphanumeric) character."
+            "Password must contain at least one special character "
+            "(not a letter, digit, or space)."
         )
 
     if cfg.get("password_common_list_check", True):

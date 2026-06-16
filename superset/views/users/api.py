@@ -39,7 +39,12 @@ from superset.extensions import db, event_logger, security_manager
 from superset.utils.auth_db_password import (
     get_auth_db_password_hash_method,
     get_auth_db_login_rate_limit_string,
+    get_public_auth_db_password_policy,
     validate_auth_db_password,
+)
+from superset.utils.auth_session_stamp import (
+    bump_user_session_auth_stamp,
+    clear_flask_login_remember_cookie,
 )
 from superset.utils.slack import get_user_avatar, SlackClientError
 from superset.views.base_api import BaseSupersetApi, requires_json, statsd_metrics
@@ -297,14 +302,11 @@ class CurrentUserRestApi(BaseSupersetApi):
         if not check_password_hash(old_hash, body["current_password"]):
             return self.response_400(message="Incorrect current password.")
 
-        try:
-            new_hash = generate_password_hash(
-                password=body["new_password"],
-                method=get_auth_db_password_hash_method(),
-                salt_length=app.config.get("FAB_PASSWORD_HASH_SALT_LENGTH", 16),
-            )
-        except ValidationError as error:
-            return self.response_400(message=error.messages)
+        new_hash = generate_password_hash(
+            password=body["new_password"],
+            method=get_auth_db_password_hash_method(),
+            salt_length=app.config.get("FAB_PASSWORD_HASH_SALT_LENGTH", 16),
+        )
 
         try:
             self.pre_update(g.user, {})
@@ -329,6 +331,7 @@ class CurrentUserRestApi(BaseSupersetApi):
                     ),
                 )
 
+            bump_user_session_auth_stamp(g.user.id)
             AuthAuditLogDAO.create(
                 event_type="password_change",
                 user_id=g.user.id,
@@ -362,7 +365,46 @@ class CurrentUserRestApi(BaseSupersetApi):
         for key in list(session.keys()):
             session.pop(key)
         login_user(user_after)
+        # Superset does not expose remember-me in the React login UI, but clear any
+        # Flask-Login persistent cookie so a prior remember token cannot bypass the
+        # rotated session auth stamp.
+        clear_flask_login_remember_cookie()
         return self.response(200, result=user_response_schema.dump(user_after))
+
+    @expose("/password/policy", methods=["GET"])
+    @protect()
+    @permission_name("read")
+    @safe
+    def get_my_password_policy(self) -> Response:
+        """Get non-secret password policy options for AUTH_DB.
+        ---
+        get:
+          summary: Get current user's password policy
+          description: >-
+            Returns non-secret ``AUTH_DB_CONFIG`` password policy options used for
+            real-time password-strength and validation UI.
+          responses:
+            200:
+              description: Password policy options
+              content:
+                application/json:
+                  schema:
+                    type: object
+                    properties:
+                      result:
+                        type: object
+            400:
+              $ref: '#/components/responses/400'
+            401:
+              $ref: '#/components/responses/401'
+        """
+        if app.config.get("AUTH_TYPE") != AUTH_DB:
+            return self.response_400(
+                message=(
+                    "Password policy is only available when AUTH_TYPE is AUTH_DB."
+                ),
+            )
+        return self.response(200, result=get_public_auth_db_password_policy())
 
 
 class UserRestApi(BaseSupersetApi):

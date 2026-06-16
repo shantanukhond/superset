@@ -70,7 +70,7 @@ function UserListResetPasswordModal({
     }
     if (!checks.special) {
       return t(
-        'Password must contain at least one special (non-alphanumeric) character.',
+        'Password must contain at least one special character (not a letter, digit, or space).',
       );
     }
     if (!checks.commonPassword) {
@@ -102,7 +102,6 @@ function UserListResetPasswordModal({
           username: user.username,
         }),
       );
-      onSave();
     } catch (error) {
       const clientError = await getClientErrorObject(error);
       const raw = clientError.message;

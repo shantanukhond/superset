@@ -14,11 +14,22 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-from . import (  # noqa: F401
-    auth_audit_log,
-    core,
-    dynamic_plugins,
-    sql_lab,
-    user_attributes,
-    user_session_auth_stamp,
-)
+"""merging two heads
+
+Revision ID: 33a0aac0a26a
+Revises: ('c6219cac9270', '33d7e0e21daa')
+Create Date: 2026-06-16 16:00:00.000000
+
+"""
+
+# revision identifiers, used by Alembic.
+revision = "33a0aac0a26a"
+down_revision = ("c6219cac9270", "33d7e0e21daa")
+
+
+def upgrade() -> None:
+    pass
+
+
+def downgrade() -> None:
+    pass

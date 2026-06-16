@@ -65,6 +65,20 @@ def test_validate_auth_db_password_rejects_common_password() -> None:
         validate_auth_db_password("password", cfg)
 
 
+def test_validate_auth_db_password_rejects_mixed_case_common_password() -> None:
+    """Blocklist entries are stored lowercase; mixed-case input must still match."""
+    cfg = {
+        "password_min_length": 6,
+        "password_require_uppercase": False,
+        "password_require_lowercase": False,
+        "password_require_digit": False,
+        "password_require_special": False,
+        "password_common_list_check": True,
+    }
+    with pytest.raises(ValidationError):
+        validate_auth_db_password("Passw0rd", cfg)
+
+
 def test_get_auth_db_password_hash_method_default_scrypt() -> None:
     assert get_auth_db_password_hash_method({}) == "scrypt"
 
