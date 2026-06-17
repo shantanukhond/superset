@@ -22,7 +22,10 @@ Create Date: 2026-04-19 14:30:00.000000
 
 """
 
+import uuid
+
 import sqlalchemy as sa
+from sqlalchemy_utils import UUIDType
 
 from superset.migrations.shared.utils import create_table, drop_table
 
@@ -32,9 +35,16 @@ down_revision = "ce6bd21901ab"
 
 
 def upgrade() -> None:
+    """Create the append-only authentication audit log table."""
     create_table(
         "auth_audit_log",
-        sa.Column("id", sa.Integer(), nullable=False, autoincrement=True),
+        sa.Column(
+            "id",
+            UUIDType(binary=True),
+            primary_key=True,
+            default=uuid.uuid4,
+            nullable=False,
+        ),
         sa.Column("user_id", sa.Integer(), nullable=True),
         sa.Column("event_type", sa.String(length=64), nullable=False),
         sa.Column("ip_address", sa.String(length=256), nullable=True),
@@ -45,10 +55,11 @@ def upgrade() -> None:
             ["user_id"],
             ["ab_user.id"],
             name="fk_auth_audit_log_user_id_ab_user",
+            ondelete="SET NULL",
         ),
-        sa.PrimaryKeyConstraint("id", name="pk_auth_audit_log"),
     )
 
 
 def downgrade() -> None:
+    """Drop the authentication audit log table."""
     drop_table("auth_audit_log")

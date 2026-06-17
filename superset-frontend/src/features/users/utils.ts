@@ -35,6 +35,24 @@ export function buildSecurityUserUpdatePayload(user: UserObject): FormValues {
   };
 }
 
+export const fetchSecurityUser = async (userId: number): Promise<UserObject> => {
+  const { json } = await SupersetClient.get({
+    endpoint: `/api/v1/security/users/${userId}`,
+  });
+  return json.result as UserObject;
+};
+
+export const resetUserPassword = async (
+  userId: number,
+  password: string,
+): Promise<void> => {
+  const freshUser = await fetchSecurityUser(userId);
+  await updateUser(userId, {
+    ...buildSecurityUserUpdatePayload(freshUser),
+    password,
+  });
+};
+
 export const createUser = async (values: FormValues) => {
   const { confirmPassword, ...payload } = values;
   if (payload.active == null) {

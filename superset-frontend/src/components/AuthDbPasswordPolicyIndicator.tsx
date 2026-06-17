@@ -76,17 +76,17 @@ const requirementText = {
   commonPassword: t('Is not a common password'),
 };
 
-function getStrengthState(passedChecks: number) {
-  if (passedChecks <= 2) {
+function getStrengthState(percent: number) {
+  if (percent <= 33) {
     return { color: '#cf1322', label: t('Very weak') };
   }
-  if (passedChecks === 3) {
+  if (percent <= 50) {
     return { color: '#d46b08', label: t('Weak') };
   }
-  if (passedChecks === 4) {
+  if (percent <= 66) {
     return { color: '#d4b106', label: t('Medium') };
   }
-  if (passedChecks === 5) {
+  if (percent <= 83) {
     return { color: '#389e0d', label: t('Strong') };
   }
   return { color: '#08979c', label: t('Very strong') };
@@ -126,7 +126,7 @@ export default function AuthDbPasswordPolicyIndicator({
   ];
   const passedChecks = checklist.filter(item => item.passed).length;
   const percent = Math.round((passedChecks / checklist.length) * 100);
-  const strength = getStrengthState(passedChecks);
+  const strength = getStrengthState(percent);
 
   return (
     <StrengthWrapper>

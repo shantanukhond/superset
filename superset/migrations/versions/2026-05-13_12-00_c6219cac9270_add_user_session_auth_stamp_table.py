@@ -32,6 +32,7 @@ down_revision = "b7e4f2a891c3"
 
 
 def upgrade() -> None:
+    """Create the per-user session authentication stamp table."""
     create_table(
         "user_session_auth_stamp",
         sa.Column("user_id", sa.Integer(), nullable=False),
@@ -47,4 +48,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    """Drop the per-user session authentication stamp table."""
     drop_table("user_session_auth_stamp")

@@ -18,12 +18,14 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime, timezone
 
 from flask_appbuilder import Model
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.types import JSON
+from sqlalchemy_utils import UUIDType
 
 from superset import security_manager
 
@@ -42,8 +44,12 @@ class AuthAuditLog(Model):
 
     __tablename__ = "auth_audit_log"
 
-    id = Column(Integer, primary_key=True)
-    user_id = Column(Integer, ForeignKey("ab_user.id"), nullable=True)
+    id = Column(UUIDType(binary=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        Integer,
+        ForeignKey("ab_user.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     event_type = Column(String(64), nullable=False)
     ip_address = Column(String(256), nullable=True)
     user_agent = Column(Text, nullable=True)

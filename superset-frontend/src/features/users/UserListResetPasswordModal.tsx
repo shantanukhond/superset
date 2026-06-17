@@ -18,6 +18,7 @@
  */
 import { t } from '@apache-superset/core/translation';
 import { getClientErrorObject, SupersetClient } from '@superset-ui/core';
+import { useEffect, useState } from 'react';
 import { ModalTitleWithIcon } from 'src/components/ModalTitleWithIcon';
 import { useToasts } from 'src/components/MessageToasts/withToasts';
 import {
@@ -30,12 +31,13 @@ import {
 import { GeneratePasswordInputSuffix } from 'src/components/GeneratePasswordInputSuffix';
 import AuthDbPasswordPolicyIndicator from 'src/components/AuthDbPasswordPolicyIndicator';
 import {
-  AUTH_DB_PASSWORD_MIN_LENGTH,
+  AUTH_DB_DEFAULT_PASSWORD_POLICY,
+  AuthDbPasswordPolicy,
   generateAuthDbPassword,
-  getAuthDbPasswordPolicyChecks,
+  getAuthDbPasswordPolicyError,
 } from 'src/utils/generateAuthDbPassword';
 import { UserObject } from 'src/pages/UsersList/types';
-import { buildSecurityUserUpdatePayload } from './utils';
+import { resetUserPassword } from './utils';
 
 export interface UserListResetPasswordModalProps {
   show: boolean;
@@ -51,33 +53,29 @@ function UserListResetPasswordModal({
   user,
 }: UserListResetPasswordModalProps) {
   const { addDangerToast, addSuccessToast } = useToasts();
-  const getPasswordPolicyError = (password: string): string | null => {
-    const checks = getAuthDbPasswordPolicyChecks(password);
-    if (!checks.minLength) {
-      return t(
-        'Password must be at least %s characters long.',
-        AUTH_DB_PASSWORD_MIN_LENGTH,
-      );
+  const [passwordPolicy, setPasswordPolicy] = useState<AuthDbPasswordPolicy>(
+    AUTH_DB_DEFAULT_PASSWORD_POLICY,
+  );
+
+  useEffect(() => {
+    if (!show) {
+      return;
     }
-    if (!checks.uppercase) {
-      return t('Password must contain at least one uppercase letter.');
-    }
-    if (!checks.lowercase) {
-      return t('Password must contain at least one lowercase letter.');
-    }
-    if (!checks.digit) {
-      return t('Password must contain at least one digit.');
-    }
-    if (!checks.special) {
-      return t(
-        'Password must contain at least one special character (not a letter, digit, or space).',
-      );
-    }
-    if (!checks.commonPassword) {
-      return t('Password is too common.');
-    }
-    return null;
-  };
+    SupersetClient.get({
+      endpoint: '/api/v1/me/password/policy',
+    })
+      .then(({ json }) => {
+        if (json?.result) {
+          setPasswordPolicy(json.result as AuthDbPasswordPolicy);
+        }
+      })
+      .catch(() => {
+        // Keep default policy when endpoint is unavailable.
+      });
+  }, [show]);
+
+  const getPasswordPolicyError = (password: string): string | null =>
+    getAuthDbPasswordPolicyError(password, passwordPolicy);
 
   const handleFormSubmit = async (values: {
     password: string;
@@ -88,15 +86,8 @@ function UserListResetPasswordModal({
     }
     const { confirmPassword, ...rest } = values;
     void confirmPassword;
-    const payload = {
-      ...buildSecurityUserUpdatePayload(user),
-      password: rest.password,
-    };
     try {
-      await SupersetClient.put({
-        endpoint: `/api/v1/security/users/${user.id}`,
-        jsonPayload: payload,
-      });
+      await resetUserPassword(user.id, rest.password);
       addSuccessToast(
         t('Password for %(username)s was updated successfully', {
           username: user.username,
@@ -164,7 +155,7 @@ function UserListResetPasswordModal({
               suffix={
                 <GeneratePasswordInputSuffix
                   onGenerate={() => {
-                    const pwd = generateAuthDbPassword();
+                    const pwd = generateAuthDbPassword(passwordPolicy);
                     form.setFieldsValue({ password: pwd, confirmPassword: pwd });
                   }}
                 />
@@ -180,7 +171,10 @@ function UserListResetPasswordModal({
                   colon={false}
                   required={false}
                 >
-                  <AuthDbPasswordPolicyIndicator password={password} />
+                  <AuthDbPasswordPolicyIndicator
+                    password={password}
+                    policy={passwordPolicy}
+                  />
                 </FormItem>
               );
             }}

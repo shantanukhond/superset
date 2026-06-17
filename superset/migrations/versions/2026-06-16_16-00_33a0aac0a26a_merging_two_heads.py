@@ -17,19 +17,19 @@
 """merging two heads
 
 Revision ID: 33a0aac0a26a
-Revises: ('c6219cac9270', '33d7e0e21daa')
+Revises: ('c6219cac9270', '78a40c08b4be')
 Create Date: 2026-06-16 16:00:00.000000
 
 """
 
 # revision identifiers, used by Alembic.
 revision = "33a0aac0a26a"
-down_revision = ("c6219cac9270", "33d7e0e21daa")
+down_revision = ("c6219cac9270", "78a40c08b4be")
 
 
 def upgrade() -> None:
-    pass
+    """Merge auth-session and semantic-layer migration branches."""
 
 
 def downgrade() -> None:
-    pass
+    """No-op: merge revisions have no schema changes to revert."""

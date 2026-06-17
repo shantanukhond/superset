@@ -17,9 +17,11 @@
  * under the License.
  */
 import {
+  AUTH_DB_DEFAULT_PASSWORD_POLICY,
   AUTH_DB_PASSWORD_MIN_LENGTH,
   generateAuthDbPassword,
   getAuthDbPasswordPolicyChecks,
+  getAuthDbPasswordPolicyError,
   satisfiesDefaultAuthDbPasswordPolicy,
 } from './generateAuthDbPassword';
 
@@ -29,6 +31,27 @@ test('generateAuthDbPassword returns policy-compliant passwords', () => {
     expect(pwd.length).toBeGreaterThanOrEqual(AUTH_DB_PASSWORD_MIN_LENGTH);
     expect(satisfiesDefaultAuthDbPasswordPolicy(pwd)).toBe(true);
   }
+});
+
+test('generateAuthDbPassword honors a custom minimum length policy', () => {
+  const policy = {
+    ...AUTH_DB_DEFAULT_PASSWORD_POLICY,
+    password_min_length: 20,
+  };
+  for (let i = 0; i < 10; i += 1) {
+    const pwd = generateAuthDbPassword(policy);
+    expect(pwd.length).toBeGreaterThanOrEqual(20);
+    expect(getAuthDbPasswordPolicyError(pwd, policy)).toBeNull();
+  }
+});
+
+test('getAuthDbPasswordPolicyError respects disabled uppercase requirement', () => {
+  const policy = {
+    ...AUTH_DB_DEFAULT_PASSWORD_POLICY,
+    password_require_uppercase: false,
+  };
+  const password = 'abcdefghijklm1!';
+  expect(getAuthDbPasswordPolicyError(password, policy)).toBeNull();
 });
 
 test('satisfiesDefaultAuthDbPasswordPolicy rejects weak and common passwords', () => {

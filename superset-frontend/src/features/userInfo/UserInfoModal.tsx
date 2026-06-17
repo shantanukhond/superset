@@ -28,10 +28,9 @@ import {
 import { GeneratePasswordInputSuffix } from 'src/components/GeneratePasswordInputSuffix';
 import {
   AUTH_DB_DEFAULT_PASSWORD_POLICY,
-  AUTH_DB_PASSWORD_MIN_LENGTH,
   AuthDbPasswordPolicy,
   generateAuthDbPassword,
-  getAuthDbPasswordPolicyChecks,
+  getAuthDbPasswordPolicyError,
 } from 'src/utils/generateAuthDbPassword';
 import { useToasts } from 'src/components/MessageToasts/withToasts';
 import AuthDbPasswordPolicyIndicator from 'src/components/AuthDbPasswordPolicyIndicator';
@@ -72,33 +71,8 @@ function UserInfoModal({
       });
   }, [show, isEditMode]);
 
-  const getPasswordPolicyError = (password: string): string | null => {
-    const checks = getAuthDbPasswordPolicyChecks(password, passwordPolicy);
-    if (!checks.minLength) {
-      return t(
-        'Password must be at least %s characters long.',
-        passwordPolicy.password_min_length ?? AUTH_DB_PASSWORD_MIN_LENGTH,
-      );
-    }
-    if (passwordPolicy.password_require_uppercase && !checks.uppercase) {
-      return t('Password must contain at least one uppercase letter.');
-    }
-    if (passwordPolicy.password_require_lowercase && !checks.lowercase) {
-      return t('Password must contain at least one lowercase letter.');
-    }
-    if (passwordPolicy.password_require_digit && !checks.digit) {
-      return t('Password must contain at least one digit.');
-    }
-    if (passwordPolicy.password_require_special && !checks.special) {
-      return t(
-        'Password must contain at least one special character (not a letter, digit, or space).',
-      );
-    }
-    if (passwordPolicy.password_common_list_check && !checks.commonPassword) {
-      return t('Password is too common.');
-    }
-    return null;
-  };
+  const getPasswordPolicyError = (password: string): string | null =>
+    getAuthDbPasswordPolicyError(password, passwordPolicy);
 
   const requiredFields = isEditMode
     ? ['first_name', 'last_name']
@@ -203,7 +177,7 @@ function UserInfoModal({
           suffix={
             <GeneratePasswordInputSuffix
               onGenerate={() => {
-                const pwd = generateAuthDbPassword();
+                const pwd = generateAuthDbPassword(passwordPolicy);
                 form.setFieldsValue({ new_password: pwd, confirm_password: pwd });
               }}
             />

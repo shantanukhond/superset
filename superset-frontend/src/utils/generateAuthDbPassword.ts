@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+import { t } from '@apache-superset/core/translation';
 /**
  * Client-side generator aligned with default ``AUTH_DB_CONFIG`` / Python
  * ``superset.utils.auth_db_password`` (minimum length, character classes, common list).
@@ -101,9 +102,18 @@ export interface AuthDbPasswordPolicyChecks {
 }
 
 function secureRandomInt(maxExclusive: number): number {
+  if (maxExclusive <= 0) {
+    throw new Error('secureRandomInt: maxExclusive must be positive');
+  }
+  const maxUint32 = 0xffffffff;
+  const limit = maxUint32 - (maxUint32 % maxExclusive);
   const buf = new Uint32Array(1);
-  crypto.getRandomValues(buf);
-  return buf[0]! % maxExclusive;
+  let value: number;
+  do {
+    crypto.getRandomValues(buf);
+    value = buf[0]!;
+  } while (value >= limit);
+  return value % maxExclusive;
 }
 
 function pick(pool: string): string {
@@ -119,20 +129,53 @@ function shuffleInPlace(chars: string[]): void {
   }
 }
 
+function getRequiredCharacterPools(
+  policy: AuthDbPasswordPolicy,
+): string[] {
+  const pools: string[] = [];
+  if (policy.password_require_uppercase) {
+    pools.push(UPPER);
+  }
+  if (policy.password_require_lowercase) {
+    pools.push(LOWER);
+  }
+  if (policy.password_require_digit) {
+    pools.push(DIGIT);
+  }
+  if (policy.password_require_special) {
+    pools.push(SPECIAL);
+  }
+  return pools;
+}
+
+function getGenerationPool(policy: AuthDbPasswordPolicy): string {
+  let pool = '';
+  if (policy.password_require_uppercase) {
+    pool += UPPER;
+  }
+  if (policy.password_require_lowercase) {
+    pool += LOWER;
+  }
+  if (policy.password_require_digit) {
+    pool += DIGIT;
+  }
+  if (policy.password_require_special) {
+    pool += SPECIAL;
+  }
+  return pool || ALPHANUM + SPECIAL;
+}
+
+function satisfiesAuthDbPasswordPolicy(
+  password: string,
+  policy: AuthDbPasswordPolicy,
+): boolean {
+  const checks = getAuthDbPasswordPolicyChecks(password, policy);
+  return Object.values(checks).every(Boolean);
+}
+
 /** True when the string satisfies default AUTH_DB rules (mirrors backend checks). */
 export function satisfiesDefaultAuthDbPasswordPolicy(password: string): boolean {
-  const checks = getAuthDbPasswordPolicyChecks(
-    password,
-    AUTH_DB_DEFAULT_PASSWORD_POLICY,
-  );
-  return (
-    checks.minLength &&
-    checks.uppercase &&
-    checks.lowercase &&
-    checks.digit &&
-    checks.special &&
-    checks.commonPassword
-  );
+  return satisfiesAuthDbPasswordPolicy(password, AUTH_DB_DEFAULT_PASSWORD_POLICY);
 }
 
 /** Returns rule-by-rule checks for default AUTH_DB password policy. */
@@ -155,27 +198,60 @@ export function getAuthDbPasswordPolicyChecks(
   };
 }
 
+/** Returns the first validation error for a password under the given policy. */
+export function getAuthDbPasswordPolicyError(
+  password: string,
+  policy: AuthDbPasswordPolicy = AUTH_DB_DEFAULT_PASSWORD_POLICY,
+): string | null {
+  const checks = getAuthDbPasswordPolicyChecks(password, policy);
+  if (!checks.minLength) {
+    return t(
+      'Password must be at least %s characters long.',
+      policy.password_min_length ?? AUTH_DB_PASSWORD_MIN_LENGTH,
+    );
+  }
+  if (policy.password_require_uppercase && !checks.uppercase) {
+    return t('Password must contain at least one uppercase letter.');
+  }
+  if (policy.password_require_lowercase && !checks.lowercase) {
+    return t('Password must contain at least one lowercase letter.');
+  }
+  if (policy.password_require_digit && !checks.digit) {
+    return t('Password must contain at least one digit.');
+  }
+  if (policy.password_require_special && !checks.special) {
+    return t(
+      'Password must contain at least one special character (not a letter, digit, or space).',
+    );
+  }
+  if (policy.password_common_list_check && !checks.commonPassword) {
+    return t('Password is too common.');
+  }
+  return null;
+}
+
 /**
- * Returns a random password that should pass ``validate_auth_db_password`` with default
- * ``AUTH_DB_CONFIG`` on the server.
+ * Returns a random password that should pass ``validate_auth_db_password`` for the
+ * supplied policy (defaults to server ``AUTH_DB_CONFIG`` defaults).
  */
-export function generateAuthDbPassword(): string {
-  const minLen = AUTH_DB_PASSWORD_MIN_LENGTH;
+export function generateAuthDbPassword(
+  policy: AuthDbPasswordPolicy = AUTH_DB_DEFAULT_PASSWORD_POLICY,
+): string {
+  const minLen = Math.max(
+    1,
+    Number(policy.password_min_length) || AUTH_DB_PASSWORD_MIN_LENGTH,
+  );
+  const requiredPools = getRequiredCharacterPools(policy);
+  const generationPool = getGenerationPool(policy);
   const maxAttempts = 64;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-    const chars: string[] = [
-      pick(UPPER),
-      pick(LOWER),
-      pick(DIGIT),
-      pick(SPECIAL),
-    ];
-    const pool = ALPHANUM + SPECIAL;
+    const chars: string[] = requiredPools.map(pool => pick(pool));
     while (chars.length < minLen) {
-      chars.push(pick(pool));
+      chars.push(pick(generationPool));
     }
     shuffleInPlace(chars);
     const password = chars.join('');
-    if (satisfiesDefaultAuthDbPasswordPolicy(password)) {
+    if (satisfiesAuthDbPasswordPolicy(password, policy)) {
       return password;
     }
   }
