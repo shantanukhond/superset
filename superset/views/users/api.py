@@ -302,9 +302,14 @@ class CurrentUserRestApi(BaseSupersetApi):
         if not check_password_hash(old_hash, body["current_password"]):
             return self.response_400(message="Incorrect current password.")
 
+        try:
+            hash_method = get_auth_db_password_hash_method()
+        except ValidationError as error:
+            return self.response_400(message=error.messages)
+
         new_hash = generate_password_hash(
             password=body["new_password"],
-            method=get_auth_db_password_hash_method(),
+            method=hash_method,
             salt_length=app.config.get("FAB_PASSWORD_HASH_SALT_LENGTH", 16),
         )
 

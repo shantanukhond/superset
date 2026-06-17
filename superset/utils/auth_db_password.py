@@ -130,7 +130,10 @@ def get_public_auth_db_password_policy(cfg: dict[str, Any] | None = None) -> dic
     Return non-secret AUTH_DB password policy options for frontend validation UI.
     """
     merged_cfg = cfg if cfg is not None else get_merged_auth_db_config()
-    return {key: merged_cfg[key] for key in _PUBLIC_PASSWORD_POLICY_KEYS}
+    return {
+        key: merged_cfg.get(key, AUTH_DB_DEFAULTS[key])
+        for key in _PUBLIC_PASSWORD_POLICY_KEYS
+    }
 
 
 def get_auth_db_password_hash_method(cfg: dict[str, Any] | None = None) -> str:
