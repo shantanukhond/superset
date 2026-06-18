@@ -17,7 +17,7 @@
 """add auth_audit_log table
 
 Revision ID: b7e4f2a891c3
-Revises: ce6bd21901ab
+Revises: 78a40c08b4be
 Create Date: 2026-04-19 14:30:00.000000
 
 """
@@ -31,7 +31,7 @@ from superset.migrations.shared.utils import create_table, drop_table
 
 # revision identifiers, used by Alembic.
 revision = "b7e4f2a891c3"
-down_revision = "ce6bd21901ab"
+down_revision = "78a40c08b4be"
 
 
 def upgrade() -> None:
