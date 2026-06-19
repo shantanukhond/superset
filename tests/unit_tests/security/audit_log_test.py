@@ -166,13 +166,11 @@ def test_user_api_post_update_logs_event(mock_log: MagicMock) -> None:
 
 
 @patch("superset.security.manager._log_audit_event")
-@patch("superset.daos.auth_audit_log.AuthAuditLogDAO.create")
 def test_user_api_post_update_logs_admin_password_change_audit(
-    mock_create: MagicMock,
     mock_log: MagicMock,
     app_context: None,
 ) -> None:
-    """Admin-initiated password updates also emit ``auth_audit_log`` rows."""
+    """Admin-initiated password updates also emit PasswordChanged audit events."""
     from flask import current_app, g
 
     current_app.config["AUTH_TYPE"] = AUTH_DB
@@ -194,16 +192,24 @@ def test_user_api_post_update_logs_admin_password_change_audit(
         api.pre_update(user, {"password": "Str0ng!Password123"})
         api.post_update(user)
 
-    mock_log.assert_called_once()
-    mock_create.assert_called_once_with(
-        event_type="password_change",
-        user_id=7,
-        ip_address="203.0.113.17",
-        user_agent="pytest-agent",
-        metadata={
+    assert mock_log.call_count == 2
+    mock_log.assert_any_call(
+        "UserUpdated",
+        {
+            "target_username": "target-user",
+            "target_user_id": 7,
+            "email": "target@example.com",
+            "active": True,
+        },
+    )
+    mock_log.assert_any_call(
+        "PasswordChanged",
+        {
             "initiated_by": "admin",
             "actor_user_id": 1,
             "target_user_id": 7,
+            "ip_address": "203.0.113.17",
+            "user_agent": "pytest-agent",
         },
     )
 

@@ -101,6 +101,10 @@ export interface AuthDbPasswordPolicyChecks {
   commonPassword: boolean;
 }
 
+function getCodePointLength(text: string): number {
+  return Array.from(text).length;
+}
+
 function secureRandomInt(maxExclusive: number): number {
   if (maxExclusive <= 0) {
     throw new Error('secureRandomInt: maxExclusive must be positive');
@@ -185,7 +189,7 @@ export function getAuthDbPasswordPolicyChecks(
 ): AuthDbPasswordPolicyChecks {
   const minLength = Math.max(1, Number(policy.password_min_length) || 1);
   return {
-    minLength: password.length >= minLength,
+    minLength: getCodePointLength(password) >= minLength,
     uppercase: !policy.password_require_uppercase || /[A-Z]/.test(password),
     lowercase: !policy.password_require_lowercase || /[a-z]/.test(password),
     digit: !policy.password_require_digit || /\d/.test(password),
@@ -246,7 +250,7 @@ export function generateAuthDbPassword(
   const maxAttempts = 64;
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
     const chars: string[] = requiredPools.map(pool => pick(pool));
-    while (chars.length < minLen) {
+    while (getCodePointLength(chars.join('')) < minLen) {
       chars.push(pick(generationPool));
     }
     shuffleInPlace(chars);

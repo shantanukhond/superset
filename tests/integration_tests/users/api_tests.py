@@ -253,8 +253,8 @@ class TestCurrentUserApi(SupersetTestCase):
         finally:
             self._restore_admin_default_password(app)
 
-    @patch("superset.views.users.api.AuthAuditLogDAO.create")
-    def test_put_my_password_audit_metadata(self, mock_create):
+    @patch("superset.views.users.api._log_audit_event")
+    def test_put_my_password_audit_metadata(self, mock_log):
         self.login(ADMIN_USERNAME)
         new_password = "AnotherStr0ng!Pass"
         try:
@@ -267,13 +267,17 @@ class TestCurrentUserApi(SupersetTestCase):
                 },
             )
             assert rv.status_code == 200
-            kwargs = mock_create.call_args.kwargs
-            assert kwargs["event_type"] == "password_change"
-            assert kwargs["user_id"] == 1
-            assert kwargs["ip_address"] is not None
-            assert kwargs["metadata"]["initiated_by"] == "self"
-            assert kwargs["metadata"]["actor_user_id"] == 1
-            assert kwargs["metadata"]["target_user_id"] == 1
+            mock_log.assert_called_once_with(
+                "PasswordChanged",
+                {
+                    "initiated_by": "self",
+                    "actor_user_id": 1,
+                    "target_user_id": 1,
+                    "ip_address": mock_log.call_args.args[1]["ip_address"],
+                    "user_agent": mock_log.call_args.args[1]["user_agent"],
+                },
+            )
+            assert mock_log.call_args.args[1]["ip_address"] is not None
         finally:
             self._restore_admin_default_password()
 

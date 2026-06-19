@@ -279,8 +279,6 @@ class SupersetUserApi(UserApi):
         )
 
     def post_update(self, item: Model) -> None:
-        from superset.daos.auth_audit_log import AuthAuditLogDAO
-
         _log_audit_event(
             "UserUpdated",
             {
@@ -296,17 +294,16 @@ class SupersetUserApi(UserApi):
 
             bump_user_session_auth_stamp(item.id)
             actor_user_id = getattr(getattr(g, "user", None), "id", None)
-            AuthAuditLogDAO.create(
-                event_type="password_change",
-                user_id=item.id,
-                ip_address=_get_request_ip(),
-                user_agent=request.headers.get("User-Agent")
-                if has_request_context()
-                else None,
-                metadata={
+            _log_audit_event(
+                "PasswordChanged",
+                {
                     "initiated_by": "admin",
                     "actor_user_id": actor_user_id,
                     "target_user_id": item.id,
+                    "ip_address": _get_request_ip(),
+                    "user_agent": request.headers.get("User-Agent")
+                    if has_request_context()
+                    else None,
                 },
             )
             delattr(g, "_auth_admin_password_change_user_id")

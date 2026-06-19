@@ -58,17 +58,21 @@ function UserInfoModal({
     if (!show || isEditMode) {
       return;
     }
+    let ignore = false;
     SupersetClient.get({
       endpoint: '/api/v1/me/password/policy',
     })
       .then(({ json }) => {
-        if (json?.result) {
+        if (!ignore && json?.result) {
           setPasswordPolicy(json.result as AuthDbPasswordPolicy);
         }
       })
       .catch(() => {
         // Keep default policy when endpoint is unavailable.
       });
+    return () => {
+      ignore = true;
+    };
   }, [show, isEditMode]);
 
   const getPasswordPolicyError = (password: string): string | null =>

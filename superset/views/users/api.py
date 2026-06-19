@@ -33,7 +33,6 @@ from sqlalchemy.orm.exc import NoResultFound
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from superset import is_feature_enabled
-from superset.daos.auth_audit_log import AuthAuditLogDAO
 from superset.daos.user import UserDAO
 from superset.extensions import db, event_logger, security_manager
 from superset.utils.auth_db_password import (
@@ -46,6 +45,7 @@ from superset.utils.auth_session_stamp import (
     bump_user_session_auth_stamp,
     clear_flask_login_remember_cookie,
 )
+from superset.security.manager import _log_audit_event
 from superset.utils.slack import get_user_avatar, SlackClientError
 from superset.views.base_api import BaseSupersetApi, requires_json, statsd_metrics
 from superset.views.users.schemas import (
@@ -337,21 +337,10 @@ class CurrentUserRestApi(BaseSupersetApi):
                 )
 
             bump_user_session_auth_stamp(g.user.id)
-            AuthAuditLogDAO.create(
-                event_type="password_change",
-                user_id=g.user.id,
-                ip_address=_get_client_ip(),
-                user_agent=request.headers.get("User-Agent"),
-                metadata={
-                    "initiated_by": "self",
-                    "actor_user_id": g.user.id,
-                    "target_user_id": g.user.id,
-                },
-            )
             db.session.commit()  # pylint: disable=consider-using-transaction
         except SQLAlchemyError:
             db.session.rollback()  # pylint: disable=consider-using-transaction
-            logger.exception("Failed to commit password change or audit log entry")
+            logger.exception("Failed to commit password change")
             return self.response_500(
                 message="Unable to update password. Please try again.",
             )
@@ -362,6 +351,17 @@ class CurrentUserRestApi(BaseSupersetApi):
             return self.response_500(
                 message="Unable to update password. Please try again.",
             )
+
+        _log_audit_event(
+            "PasswordChanged",
+            {
+                "initiated_by": "self",
+                "actor_user_id": g.user.id,
+                "target_user_id": g.user.id,
+                "ip_address": _get_client_ip(),
+                "user_agent": request.headers.get("User-Agent"),
+            },
+        )
 
         # Mitigate session fixation: clear the cookie session and re-establish login.
         # Run only after a successful commit so a failed commit cannot wipe the session

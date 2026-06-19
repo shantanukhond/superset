@@ -28,7 +28,9 @@ import {
 test('generateAuthDbPassword returns policy-compliant passwords', () => {
   for (let i = 0; i < 20; i += 1) {
     const pwd = generateAuthDbPassword();
-    expect(pwd.length).toBeGreaterThanOrEqual(AUTH_DB_PASSWORD_MIN_LENGTH);
+    expect(Array.from(pwd).length).toBeGreaterThanOrEqual(
+      AUTH_DB_PASSWORD_MIN_LENGTH,
+    );
     expect(satisfiesDefaultAuthDbPasswordPolicy(pwd)).toBe(true);
   }
 });
@@ -40,9 +42,23 @@ test('generateAuthDbPassword honors a custom minimum length policy', () => {
   };
   for (let i = 0; i < 10; i += 1) {
     const pwd = generateAuthDbPassword(policy);
-    expect(pwd.length).toBeGreaterThanOrEqual(20);
+    expect(Array.from(pwd).length).toBeGreaterThanOrEqual(20);
     expect(getAuthDbPasswordPolicyError(pwd, policy)).toBeNull();
   }
+});
+
+test('getAuthDbPasswordPolicyChecks counts Unicode code points for min length', () => {
+  const policy = {
+    ...AUTH_DB_DEFAULT_PASSWORD_POLICY,
+    password_min_length: 2,
+    password_require_uppercase: false,
+    password_require_lowercase: false,
+    password_require_digit: false,
+    password_require_special: false,
+    password_common_list_check: false,
+  };
+  expect(getAuthDbPasswordPolicyChecks('a😀', policy).minLength).toBe(true);
+  expect(getAuthDbPasswordPolicyChecks('😀', policy).minLength).toBe(false);
 });
 
 test('getAuthDbPasswordPolicyError respects disabled uppercase requirement', () => {

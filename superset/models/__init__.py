@@ -15,7 +15,6 @@
 # specific language governing permissions and limitations
 # under the License.
 from . import (  # noqa: F401
-    auth_audit_log,
     core,
     dynamic_plugins,
     sql_lab,
